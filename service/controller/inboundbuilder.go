@@ -326,10 +326,28 @@ func buildTrojanFallbacks(fallbackConfigs []*FallBackConfig) ([]*conf.TrojanInbo
 			return nil, fmt.Errorf("dest is required for fallback failed")
 		}
 
+		// Parse the destination address and port to ensure proper JSON format
 		var dest json.RawMessage
-		dest, err := json.Marshal(c.Dest)
-		if err != nil {
-			return nil, fmt.Errorf("marshal dest %s config failed: %s", dest, err)
+		// Split address and port
+		parts := strings.Split(c.Dest, ":")
+		if len(parts) == 2 {
+			// Create proper JSON object for Trojan fallback
+			destConfig := map[string]interface{}{
+				"address": parts[0],
+				"port":    parts[1],
+			}
+			destBytes, err := json.Marshal(destConfig)
+			if err != nil {
+				return nil, fmt.Errorf("marshal dest config failed: %s", err)
+			}
+			dest = destBytes
+		} else {
+			// Fallback to string format if not in address:port format
+			destBytes, err := json.Marshal(c.Dest)
+			if err != nil {
+				return nil, fmt.Errorf("marshal dest %s config failed: %s", c.Dest, err)
+			}
+			dest = destBytes
 		}
 		trojanFallBacks[i] = &conf.TrojanInboundFallback{
 			Name: c.SNI,
