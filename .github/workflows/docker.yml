@@ -49,7 +49,13 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           digest="${{ steps.build.outputs.digest }}"
-          touch "/tmp/digests/${digest#sha256:}"          
+          if [ -z "$digest" ]; then
+            echo "Error: build digest is empty" >&2
+            exit 1
+          fi
+          platform="${{ matrix.platform }}"
+          platform="${platform//\//_}"
+          touch "/tmp/digests/${platform}-${digest#sha256:}"
       - name: Upload digest
         uses: actions/upload-artifact@v4
         with:
@@ -85,10 +91,24 @@ jobs:
         working-directory: /tmp/digests
         run: |
           ls -al
-          echo docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *) 
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          if [ -z "$tags" ] || [ "$tags" = "null" ]; then
+            echo "DOCKER_METADATA_OUTPUT_JSON tags empty, falling back to version output"
+            tags="-t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}"
+          fi
+          imgs=""
+          for f in *; do
+            if [ -f "$f" ]; then
+              hash=${f##*-}
+              imgs="$imgs ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:${hash}"
+            fi
+          done
+          if [ -z "$imgs" ]; then
+            echo "No digest files found in /tmp/digests" >&2
+            exit 1
+          fi
+          echo docker buildx imagetools create $tags $imgs
+          docker buildx imagetools create $tags $imgs
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
